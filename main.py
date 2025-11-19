@@ -226,6 +226,30 @@ async def send_random_sticker(chat_id: int, mood: str = 'happy'):
             logger.debug(f"Sticker send error: {e}")
 
 
+def get_main_menu_keyboard(user_id: int) -> types.InlineKeyboardMarkup:
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    
+    if user_id in ADMIN_USER_IDS:
+        keyboard.row(
+            types.InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
+            types.InlineKeyboardButton("ℹ️ Справка", callback_data="menu_help")
+        )
+        keyboard.row(
+            types.InlineKeyboardButton("👨‍💼 Админ-панель", callback_data="menu_admin")
+        )
+    else:
+        keyboard.row(
+            types.InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
+            types.InlineKeyboardButton("💳 Баланс", callback_data="menu_balance")
+        )
+        keyboard.row(
+            types.InlineKeyboardButton("🛒 Купить запросы", callback_data="menu_buy"),
+            types.InlineKeyboardButton("ℹ️ Справка", callback_data="menu_help")
+        )
+    
+    return keyboard
+
+
 class IsAllowedUser(BoundFilter):
     key = 'is_allowed_user'
 
@@ -414,7 +438,7 @@ async def send_long_message(chat_id: int, text: str, parse_mode: str = None) -> 
 
         for i, part in enumerate(parts):
             try:
-                footer = f"\n\nЧасть {i + 1} из {len(parts)}" if len(parts) > 1 else ""
+                footer = f"\n\n📄 Часть {i + 1} из {len(parts)}" if len(parts) > 1 else ""
                 await bot.send_message(chat_id, part + footer, parse_mode=parse_mode)
                 await asyncio.sleep(0.3)
             except Exception as e:
@@ -426,13 +450,15 @@ async def send_long_message(chat_id: int, text: str, parse_mode: str = None) -> 
 async def cmd_start_denied(message: types.Message):
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
-        types.InlineKeyboardButton(text="Купить доступ", callback_data="buy_access")
+        types.InlineKeyboardButton(text="🛒 Купить доступ", callback_data="buy_access")
     )
 
     await message.answer(
-        "Привет. Для использования бота нужно приобрести доступ.\n\n"
-        "Каждый день вы получаете 3 бесплатных запроса, которые сбрасываются каждые 24 часа.\n"
-        "Для дополнительных запросов можно приобрести пакеты по выгодным ценам.",
+        "👋 Привет! Добро пожаловать в СережкаИИ\n\n"
+        "🤖 Я — умный AI-ассистент на базе Perplexity Sonar Pro\n\n"
+        "🎁 Каждый день вы получаете 3 бесплатных запроса\n"
+        "⏰ Они сбрасываются каждые 24 часа\n\n"
+        "💎 Для дополнительных запросов можно приобрести пакеты по выгодным ценам",
         reply_markup=keyboard
     )
 
@@ -443,51 +469,248 @@ async def cmd_start(message: types.Message):
     user_id = message.from_user.id
 
     if user_id in ADMIN_USER_IDS:
-        status = "Администратор (безлимит)"
+        status = "👨‍💼 Администратор (безлимит)"
     else:
         reset_daily_requests(user_id)
         data = get_user_data(user_id)
         daily = data['daily_free_requests']
         paid = data['requests_remaining']
-        status = f"Бесплатных: {daily}/3 (сброс через {get_time_until_reset()})\nКупленных: {paid}"
+        status = f"🎁 Бесплатных: {daily}/3\n💎 Купленных: {paid}"
 
     welcome_text = (
-        f"Привет, {first_name}!\n\n"
-        f"Я — СережкаИИ на базе Sonar Pro.\n\n"
-        f"Твой статус: {status}\n\n"
-        f"Что я умею:\n"
-        f"• Отвечать на любые вопросы\n"
-        f"• Решать школьные задания по фото\n"
-        f"• Анализировать изображения\n"
-        f"• Искать актуальную информацию\n\n"
-        f"Команды:\n"
-        f"/buy - Купить запросы\n"
-        f"/balance - Проверить баланс\n"
-        f"/help - Справка\n\n"
-        f"Просто отправь мне вопрос или фото с заданием."
+        f"👋 Привет, {first_name}!\n\n"
+        f"🤖 Я — СережкаИИ на базе Sonar Pro\n\n"
+        f"📊 Твой статус:\n{status}\n\n"
+        f"✨ Мои возможности:\n"
+        f"• 💬 Отвечаю на любые вопросы\n"
+        f"• 📚 Решаю школьные задания по фото\n"
+        f"• 🖼 Анализирую изображения\n"
+        f"• 🔍 Ищу актуальную информацию\n\n"
+        f"💡 Просто отправь мне вопрос или фото!"
     )
-    await message.answer(welcome_text)
+    
+    keyboard = get_main_menu_keyboard(user_id)
+    await message.answer(welcome_text, reply_markup=keyboard)
+
+
+@dp.message_handler(commands=['menu'], is_allowed_user=True)
+async def cmd_menu(message: types.Message):
+    user_id = message.from_user.id
+    keyboard = get_main_menu_keyboard(user_id)
+    
+    await message.answer(
+        "📱 Главное меню\n\n"
+        "Выберите нужный раздел:",
+        reply_markup=keyboard
+    )
+
+
+@dp.callback_query_handler(lambda c: c.data == 'menu_profile')
+async def menu_profile(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    user_id = callback_query.from_user.id
+    first_name = callback_query.from_user.first_name
+    username = callback_query.from_user.username or "не указан"
+    
+    if user_id in ADMIN_USER_IDS:
+        profile_text = (
+            f"👤 Профиль пользователя\n\n"
+            f"👨‍💼 Статус: Администратор\n"
+            f"🆔 ID: {user_id}\n"
+            f"📝 Имя: {first_name}\n"
+            f"🔗 Username: @{username}\n"
+            f"♾ Запросов: Безлимит"
+        )
+    else:
+        reset_daily_requests(user_id)
+        data = get_user_data(user_id)
+        
+        profile_text = (
+            f"👤 Профиль пользователя\n\n"
+            f"🆔 ID: {user_id}\n"
+            f"📝 Имя: {first_name}\n"
+            f"🔗 Username: @{username}\n\n"
+            f"📊 Статистика:\n"
+            f"🎁 Бесплатных: {data['daily_free_requests']}/3\n"
+            f"💎 Купленных: {data['requests_remaining']}\n"
+            f"📈 Всего выполнено: {data['total_requests_made']}\n"
+            f"⏰ Сброс через: {get_time_until_reset()}"
+        )
+    
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_menu"))
+    
+    await callback_query.message.edit_text(profile_text, reply_markup=keyboard)
+
+
+@dp.callback_query_handler(lambda c: c.data == 'menu_balance')
+async def menu_balance(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    user_id = callback_query.from_user.id
+    
+    reset_daily_requests(user_id)
+    data = get_user_data(user_id)
+    
+    balance_text = (
+        f"💳 Баланс запросов\n\n"
+        f"🎁 Бесплатных: {data['daily_free_requests']}/3\n"
+        f"⏰ Сброс через: {get_time_until_reset()}\n\n"
+        f"💎 Купленных: {data['requests_remaining']}\n\n"
+        f"📈 Всего выполнено: {data['total_requests_made']}\n\n"
+        f"💡 Используйте кнопку ниже для покупки запросов"
+    )
+    
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.row(types.InlineKeyboardButton("🛒 Купить запросы", callback_data="menu_buy"))
+    keyboard.add(types.InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_menu"))
+    
+    await callback_query.message.edit_text(balance_text, reply_markup=keyboard)
+
+
+@dp.callback_query_handler(lambda c: c.data == 'menu_help')
+async def menu_help(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    
+    help_text = (
+        "ℹ️ Справка по использованию\n\n"
+        "📝 Текстовые вопросы:\n"
+        "Просто напиши свой вопрос, и я отвечу\n\n"
+        "📚 Школьные задания:\n"
+        "Отправь фото задания с подписью или без\n"
+        "Я решу его и оформлю ответ\n\n"
+        "🖼 Анализ изображений:\n"
+        "Отправь любое изображение для анализа\n\n"
+        "🎁 Бесплатные запросы:\n"
+        "Каждый день — 3 бесплатных запроса\n"
+        "Они сбрасываются каждые 24 часа\n\n"
+        "💎 Платные запросы:\n"
+        "Покупай пакеты по выгодным ценам\n"
+        "Чем больше пакет — тем дешевле!\n\n"
+        "🤖 Все ответы от Perplexity Sonar Pro"
+    )
+    
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_menu"))
+    
+    await callback_query.message.edit_text(help_text, reply_markup=keyboard)
+
+
+@dp.callback_query_handler(lambda c: c.data == 'menu_admin')
+async def menu_admin(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    user_id = callback_query.from_user.id
+    
+    if user_id not in ADMIN_USER_IDS:
+        return
+    
+    admin_text = (
+        "👨‍💼 Админ-панель\n\n"
+        "Доступные команды:\n\n"
+        "/give [ID] [количество] - Выдать запросы\n"
+        "Пример: /give 123456789 50\n\n"
+        "/stats - Общая статистика бота\n\n"
+        "💡 Используй команды в чате с ботом"
+    )
+    
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_menu"))
+    
+    await callback_query.message.edit_text(admin_text, reply_markup=keyboard)
+
+
+@dp.callback_query_handler(lambda c: c.data == 'back_to_menu')
+async def back_to_menu(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    user_id = callback_query.from_user.id
+    keyboard = get_main_menu_keyboard(user_id)
+    
+    await callback_query.message.edit_text(
+        "📱 Главное меню\n\n"
+        "Выберите нужный раздел:",
+        reply_markup=keyboard
+    )
+
+
+@dp.message_handler(commands=['give'])
+async def cmd_give(message: types.Message):
+    user_id = message.from_user.id
+    
+    if user_id not in ADMIN_USER_IDS:
+        await message.answer("❌ Эта команда доступна только администраторам")
+        return
+    
+    try:
+        parts = message.text.split()
+        if len(parts) != 3:
+            await message.answer(
+                "❌ Неверный формат команды\n\n"
+                "Используйте: /give [ID] [количество]\n"
+                "Пример: /give 123456789 50"
+            )
+            return
+        
+        target_user_id = int(parts[1])
+        requests_amount = int(parts[2])
+        
+        if requests_amount <= 0:
+            await message.answer("❌ Количество запросов должно быть больше 0")
+            return
+        
+        ALLOWED_USER_IDS.add(target_user_id)
+        
+        data = get_user_data(target_user_id)
+        data['requests_remaining'] += requests_amount
+        update_user_data(target_user_id, data)
+        
+        await message.answer(
+            f"✅ Успешно выдано запросов\n\n"
+            f"👤 Пользователь: {target_user_id}\n"
+            f"💎 Добавлено: {requests_amount}\n"
+            f"📊 Всего у пользователя: {data['requests_remaining']}"
+        )
+        
+        try:
+            await bot.send_message(
+                target_user_id,
+                f"🎁 Вам начислено {requests_amount} запросов!\n\n"
+                f"💎 Всего запросов: {data['requests_remaining']}\n\n"
+                f"Спасибо за использование СережкаИИ! 🤖"
+            )
+        except Exception as e:
+            logger.warning(f"Could not notify user {target_user_id}: {e}")
+        
+    except ValueError:
+        await message.answer(
+            "❌ Ошибка в формате данных\n\n"
+            "ID и количество должны быть числами\n"
+            "Пример: /give 123456789 50"
+        )
+    except Exception as e:
+        logger.error(f"Error in give command: {e}")
+        await message.answer("❌ Произошла ошибка при выполнении команды")
 
 
 @dp.message_handler(commands=['help'], is_allowed_user=True)
 async def cmd_help(message: types.Message):
     help_text = (
-        "Как пользоваться ботом\n\n"
-        "Текстовые вопросы:\n"
-        "Просто напиши свой вопрос, и я отвечу.\n\n"
-        "Школьные задания:\n"
-        "Отправь фото задания (можно с подписью).\n"
-        "Я решу его и оформлю ответ.\n\n"
-        "Анализ изображений:\n"
-        "Отправь любое изображение для анализа.\n\n"
-        "Бесплатные запросы:\n"
-        "Каждый день ты получаешь 3 бесплатных запроса.\n"
-        "Они сбрасываются каждые 24 часа.\n\n"
-        "Покупка запросов:\n"
-        "Используй /buy для покупки дополнительных запросов.\n\n"
-        "Все ответы от Perplexity Sonar Pro"
+        "ℹ️ Справка по использованию\n\n"
+        "📝 Текстовые вопросы:\n"
+        "Просто напиши свой вопрос, и я отвечу\n\n"
+        "📚 Школьные задания:\n"
+        "Отправь фото задания с подписью или без\n"
+        "Я решу его и оформлю ответ\n\n"
+        "🖼 Анализ изображений:\n"
+        "Отправь любое изображение для анализа\n\n"
+        "🎁 Бесплатные запросы:\n"
+        "Каждый день — 3 бесплатных запроса\n"
+        "Они сбрасываются каждые 24 часа\n\n"
+        "💎 Платные запросы:\n"
+        "Покупай пакеты по выгодным ценам\n\n"
+        "🤖 Все ответы от Perplexity Sonar Pro"
     )
-    await message.answer(help_text)
+    
+    keyboard = get_main_menu_keyboard(message.from_user.id)
+    await message.answer(help_text, reply_markup=keyboard)
 
 
 @dp.message_handler(commands=['balance'])
@@ -495,59 +718,94 @@ async def cmd_balance(message: types.Message):
     user_id = message.from_user.id
 
     if user_id in ADMIN_USER_IDS:
-        await message.answer("Ты администратор. У тебя безлимитный доступ.")
+        await message.answer("👨‍💼 Ты администратор. У тебя безлимитный доступ ♾")
         return
 
     reset_daily_requests(user_id)
     data = get_user_data(user_id)
 
-    daily = data['daily_free_requests']
-    paid = data['requests_remaining']
-    total = data['total_requests_made']
-
     balance_text = (
-        f"Твой баланс:\n\n"
-        f"Бесплатных запросов: {daily}/3\n"
-        f"Сброс через: {get_time_until_reset()}\n\n"
-        f"Купленных запросов: {paid}\n\n"
-        f"Всего выполнено: {total}\n\n"
-        f"Для покупки используй /buy"
+        f"💳 Баланс запросов\n\n"
+        f"🎁 Бесплатных: {data['daily_free_requests']}/3\n"
+        f"⏰ Сброс через: {get_time_until_reset()}\n\n"
+        f"💎 Купленных: {data['requests_remaining']}\n\n"
+        f"📈 Всего выполнено: {data['total_requests_made']}"
     )
+    
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton("🛒 Купить запросы", callback_data="menu_buy"))
 
-    await message.answer(balance_text)
+    await message.answer(balance_text, reply_markup=keyboard)
 
 
 @dp.message_handler(commands=['buy'])
 async def cmd_buy(message: types.Message):
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
 
-    buttons = []
     for requests, stars in PRICING.items():
         discount = ""
         if requests >= 50:
-            discount = " (-30%)"
+            discount = " 🔥 -30%"
         elif requests >= 30:
-            discount = " (-13%)"
+            discount = " 🎯 -13%"
         elif requests >= 20:
-            discount = " (-10%)"
+            discount = " 💫 -10%"
 
-        buttons.append(
+        buttons_text = f"💎 {requests} запросов — ⭐️ {stars} Stars{discount}"
+        
+        keyboard.add(
             types.InlineKeyboardButton(
-                text=f"{requests} запросов - {stars} Stars{discount}",
+                text=buttons_text,
                 callback_data=f"buy_{requests}"
             )
         )
 
-    keyboard.add(*buttons)
-
     buy_text = (
-        "Выбери пакет запросов:\n\n"
-        "Чем больше пакет - тем выгоднее цена!\n\n"
-        "1 Star ~ 0.02$\n"
-        "Telegram Stars можно купить в @PremiumBot"
+        "🛒 Магазин запросов\n\n"
+        "💡 Выберите подходящий пакет:\n\n"
+        "⭐️ 1 Star ≈ 0.02$\n"
+        "🔥 Чем больше пакет — тем выгоднее!\n\n"
+        "💳 Telegram Stars можно купить в @PremiumBot"
     )
 
     await message.answer(buy_text, reply_markup=keyboard)
+
+
+@dp.callback_query_handler(lambda c: c.data == 'menu_buy')
+async def menu_buy(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+
+    for requests, stars in PRICING.items():
+        discount = ""
+        if requests >= 50:
+            discount = " 🔥 -30%"
+        elif requests >= 30:
+            discount = " 🎯 -13%"
+        elif requests >= 20:
+            discount = " 💫 -10%"
+
+        buttons_text = f"💎 {requests} запросов — ⭐️ {stars} Stars{discount}"
+        
+        keyboard.add(
+            types.InlineKeyboardButton(
+                text=buttons_text,
+                callback_data=f"buy_{requests}"
+            )
+        )
+    
+    keyboard.add(types.InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_menu"))
+
+    buy_text = (
+        "🛒 Магазин запросов\n\n"
+        "💡 Выберите подходящий пакет:\n\n"
+        "⭐️ 1 Star ≈ 0.02$\n"
+        "🔥 Чем больше пакет — тем выгоднее!\n\n"
+        "💳 Telegram Stars можно купить в @PremiumBot"
+    )
+
+    await callback_query.message.edit_text(buy_text, reply_markup=keyboard)
 
 
 @dp.callback_query_handler(lambda c: c.data == 'buy_access')
@@ -569,7 +827,7 @@ async def process_buy_callback(callback_query: types.CallbackQuery):
     try:
         invoice = await bot.send_invoice(
             chat_id=callback_query.message.chat.id,
-            title=f"{requests_count} запросов к AI",
+            title=f"💎 {requests_count} запросов к AI",
             description=f"Покупка пакета из {requests_count} запросов к Perplexity AI",
             payload=json.dumps({
                 'user_id': user_id,
@@ -585,7 +843,7 @@ async def process_buy_callback(callback_query: types.CallbackQuery):
 
     except Exception as e:
         logger.error(f"Invoice creation error: {e}")
-        await callback_query.message.answer("Ошибка создания счета. Попробуйте позже.")
+        await callback_query.message.answer("❌ Ошибка создания счета. Попробуйте позже.")
 
 
 @dp.pre_checkout_query_handler()
@@ -628,30 +886,30 @@ async def process_successful_payment(message: types.Message):
         )
 
         await message.answer(
-            f"Оплата прошла успешно!\n\n"
-            f"Добавлено запросов: {requests_count}\n"
-            f"Всего купленных: {data['requests_remaining']}\n\n"
-            f"Спасибо за покупку!"
+            f"✅ Оплата прошла успешно!\n\n"
+            f"💎 Добавлено запросов: {requests_count}\n"
+            f"📊 Всего купленных: {data['requests_remaining']}\n\n"
+            f"🎉 Спасибо за покупку!"
         )
 
         await send_random_sticker(user_id, 'success')
 
     except Exception as e:
         logger.error(f"Payment processing error: {e}", exc_info=True)
-        await message.answer("Платеж получен, но произошла ошибка. Свяжитесь с поддержкой.")
+        await message.answer("❌ Платеж получен, но произошла ошибка. Свяжитесь с поддержкой.")
 
 
 @dp.message_handler(commands=['paysupport'])
 async def cmd_paysupport(message: types.Message):
     support_text = (
-        "Поддержка по платежам:\n\n"
+        "💬 Поддержка по платежам\n\n"
         "Если у вас возникли проблемы с оплатой или начислением запросов, "
         "опишите проблему в ответном сообщении.\n\n"
-        "Обязательно укажите:\n"
-        "- Что именно произошло\n"
-        "- Когда вы совершали платеж\n"
-        "- Сколько запросов должно было быть начислено\n\n"
-        "Мы ответим в ближайшее время."
+        "📝 Обязательно укажите:\n"
+        "• Что именно произошло\n"
+        "• Когда вы совершали платеж\n"
+        "• Сколько запросов должно было быть начислено\n\n"
+        "⏰ Мы ответим в ближайшее время"
     )
     await message.answer(support_text)
 
@@ -660,10 +918,11 @@ async def cmd_paysupport(message: types.Message):
 async def handle_unauthorized(message: types.Message):
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(
-        types.InlineKeyboardButton(text="Купить доступ", callback_data="buy_access")
+        types.InlineKeyboardButton(text="🛒 Купить доступ", callback_data="buy_access")
     )
     await message.answer(
-        "У вас закончились бесплатные запросы. Купите пакет для продолжения работы.",
+        "⚠️ У вас закончились бесплатные запросы\n\n"
+        "💡 Купите пакет для продолжения работы",
         reply_markup=keyboard
     )
 
@@ -675,11 +934,11 @@ async def handle_photo(message: types.Message):
     if not can_make_request(user_id):
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(
-            types.InlineKeyboardButton(text="Купить запросы", callback_data="buy_access")
+            types.InlineKeyboardButton(text="🛒 Купить запросы", callback_data="buy_access")
         )
         await message.answer(
-            "У вас закончились запросы.\n"
-            f"Бесплатные сбросятся через: {get_time_until_reset()}",
+            "⚠️ У вас закончились запросы\n\n"
+            f"⏰ Бесплатные сбросятся через: {get_time_until_reset()}",
             reply_markup=keyboard
         )
         return
@@ -687,7 +946,7 @@ async def handle_photo(message: types.Message):
     processing_msg = None
 
     try:
-        processing_msg = await message.answer("Обрабатываю изображение...")
+        processing_msg = await message.answer("🔄 Обрабатываю изображение...")
 
         photo = message.photo[-1]
         file = await bot.get_file(photo.file_id)
@@ -696,11 +955,11 @@ async def handle_photo(message: types.Message):
         image_base64 = await download_image_as_base64(file_url)
 
         if not image_base64:
-            await processing_msg.edit_text("Ошибка обработки изображения. Попробуйте ещё раз.")
+            await processing_msg.edit_text("❌ Ошибка обработки изображения. Попробуйте ещё раз.")
             return
 
         try:
-            await processing_msg.edit_text("Анализирую с помощью AI...")
+            await processing_msg.edit_text("🤖 Анализирую с помощью AI...")
         except (MessageNotModified, MessageToEditNotFound):
             pass
 
@@ -726,9 +985,9 @@ async def handle_photo(message: types.Message):
         logger.error(f"Photo handling error: {e}", exc_info=True)
         if processing_msg:
             try:
-                await processing_msg.edit_text("Произошла ошибка. Попробуйте позже.")
+                await processing_msg.edit_text("❌ Произошла ошибка. Попробуйте позже.")
             except:
-                await message.answer("Произошла ошибка при обработке изображения.")
+                await message.answer("❌ Произошла ошибка при обработке изображения.")
 
 
 @dp.message_handler(is_allowed_user=True, content_types=types.ContentType.TEXT)
@@ -742,11 +1001,11 @@ async def handle_text(message: types.Message):
         if not can_make_request(user_id):
             keyboard = types.InlineKeyboardMarkup()
             keyboard.add(
-                types.InlineKeyboardButton(text="Купить запросы", callback_data="buy_access")
+                types.InlineKeyboardButton(text="🛒 Купить запросы", callback_data="buy_access")
             )
             await message.answer(
-                "У вас закончились запросы.\n"
-                f"Бесплатные сбросятся через: {get_time_until_reset()}",
+                "⚠️ У вас закончились запросы\n\n"
+                f"⏰ Бесплатные сбросятся через: {get_time_until_reset()}",
                 reply_markup=keyboard
             )
             return
@@ -761,7 +1020,7 @@ async def handle_text(message: types.Message):
 
     except Exception as e:
         logger.error(f"Text handling error: {e}", exc_info=True)
-        await message.answer("Произошла ошибка. Попробуйте позже.")
+        await message.answer("❌ Произошла ошибка. Попробуйте позже.")
 
 
 @dp.errors_handler()
@@ -770,7 +1029,7 @@ async def errors_handler(update: types.Update, exception: Exception):
 
     if update.message:
         try:
-            await update.message.answer("Произошла непредвиденная ошибка. Попробуйте позже.")
+            await update.message.answer("❌ Произошла непредвиденная ошибка. Попробуйте позже.")
         except Exception:
             pass
 
