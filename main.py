@@ -4,6 +4,7 @@ import base64
 import json
 import random
 import sqlite3
+import os
 from typing import Optional, Dict, List
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -17,9 +18,9 @@ from aiogram.utils import executor
 from aiogram.utils.exceptions import MessageNotModified, MessageToEditNotFound
 import aiohttp
 
-TELEGRAM_BOT_TOKEN = '8249080572:AAG9qV_05N-8oVN_Y1WZ-B8MKrSj_4XIPUY'
-PERPLEXITY_API_KEY = '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'
-ADMIN_USER_IDS = [8467563699, 6692924040, 6911346168]
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+PERPLEXITY_API_KEY = os.getenv('PERPLEXITY_API_KEY')
+ADMIN_USER_IDS = list(map(int, os.getenv('ADMIN_USER_IDS', '').split(','))) if os.getenv('ADMIN_USER_IDS') else []
 
 ALLOWED_USER_IDS = set(ADMIN_USER_IDS)
 
