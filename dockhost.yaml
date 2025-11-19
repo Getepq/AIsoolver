@@ -7,6 +7,6 @@ containers:
       context: .
     restart: always
     environment:
-      TELEGRAM_BOT_TOKEN: "YOUR_TELEGRAM_BOT_TOKEN"
-      PERPLEXITY_API_KEY: "YOUR_PERPLEXITY_API_KEY"
-      ADMIN_USER_IDS: "123456789,987654321"
+      TELEGRAM_BOT_TOKEN:
+      PERPLEXITY_API_KEY:
+      ADMIN_USER_IDS:
