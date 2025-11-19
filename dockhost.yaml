@@ -1,11 +1,20 @@
 version: 1
 project: telegram-ai-bot
 
+volumes:
+  data:
+    type: hdd
+    size: 2Gib
+
 containers:
   - name: telegram-bot
     image:
-      context: .
+      context: https://github.com/Getepq/AIsoolver.git
+      dockerfile: Dockerfile
     restart: always
+    volumes:
+      - name: data
+        path: /app
     environment:
       TELEGRAM_BOT_TOKEN:
       PERPLEXITY_API_KEY:
