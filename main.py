@@ -18,9 +18,13 @@ from aiogram.utils import executor
 from aiogram.utils.exceptions import MessageNotModified, MessageToEditNotFound
 import aiohttp
 
+# Configuration
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 PERPLEXITY_API_KEY = os.getenv('PERPLEXITY_API_KEY')
 ADMIN_USER_IDS = list(map(int, os.getenv('ADMIN_USER_IDS', '').split(','))) if os.getenv('ADMIN_USER_IDS') else []
+
+# ИСПРАВЛЕНО: Добавлена переменная окружения для пути к БД
+DATABASE_PATH = os.getenv('DATABASE_PATH', '/data/bot_data.db')
 
 ALLOWED_USER_IDS = set(ADMIN_USER_IDS)
 
@@ -70,90 +74,199 @@ dp = Dispatcher(bot)
 dp.middleware.setup(LoggingMiddleware())
 
 
+# ИСПРАВЛЕНО: Создание директории для БД
+def ensure_db_directory():
+    """Ensure database directory exists"""
+    db_dir = os.path.dirname(DATABASE_PATH)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir, exist_ok=True)
+        logger.info(f"Created database directory: {db_dir}")
+
+
+# ИСПРАВЛЕНО: Добавлена обработка ошибок и индексы
 def init_db():
-    with closing(sqlite3.connect('bot_data.db')) as conn:
-        with closing(conn.cursor()) as cursor:
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY,
-                    requests_remaining INTEGER DEFAULT 0,
-                    daily_free_requests INTEGER DEFAULT 3,
-                    last_reset TEXT,
-                    total_requests_made INTEGER DEFAULT 0
-                )
-            ''')
-
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS payments (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    requests_count INTEGER,
-                    stars_amount INTEGER,
-                    telegram_charge_id TEXT,
-                    payment_date TEXT,
-                    FOREIGN KEY (user_id) REFERENCES users (user_id)
-                )
-            ''')
-            conn.commit()
-    logger.info("Database initialized successfully")
-
-
-def get_user_data(user_id: int) -> dict:
-    with closing(sqlite3.connect('bot_data.db')) as conn:
-        with closing(conn.cursor()) as cursor:
-            cursor.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
-            result = cursor.fetchone()
-
-            if result:
-                return {
-                    'requests_remaining': result[1],
-                    'daily_free_requests': result[2],
-                    'last_reset': datetime.strptime(result[3], '%Y-%m-%d').date(),
-                    'total_requests_made': result[4]
-                }
-            else:
+    try:
+        ensure_db_directory()
+        
+        with closing(sqlite3.connect(DATABASE_PATH, timeout=30.0)) as conn:
+            with closing(conn.cursor()) as cursor:
                 cursor.execute('''
-                    INSERT INTO users (user_id, requests_remaining, daily_free_requests, last_reset, total_requests_made)
-                    VALUES (?, 0, ?, ?, 0)
-                ''', (user_id, FREE_DAILY_REQUESTS, datetime.now().date().strftime('%Y-%m-%d')))
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id INTEGER PRIMARY KEY,
+                        requests_remaining INTEGER DEFAULT 0,
+                        daily_free_requests INTEGER DEFAULT 3,
+                        last_reset TEXT,
+                        total_requests_made INTEGER DEFAULT 0
+                    )
+                ''')
+
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS payments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        requests_count INTEGER,
+                        stars_amount INTEGER,
+                        telegram_charge_id TEXT,
+                        payment_date TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users (user_id)
+                    )
+                ''')
+                
+                # ИСПРАВЛЕНО: Добавлены индексы для оптимизации запросов
+                cursor.execute('''
+                    CREATE INDEX IF NOT EXISTS idx_payments_user_id 
+                    ON payments (user_id)
+                ''')
+                
+                cursor.execute('''
+                    CREATE INDEX IF NOT EXISTS idx_payments_date 
+                    ON payments (payment_date)
+                ''')
+                
                 conn.commit()
-                return {
-                    'requests_remaining': 0,
-                    'daily_free_requests': FREE_DAILY_REQUESTS,
-                    'last_reset': datetime.now().date(),
-                    'total_requests_made': 0
-                }
+        
+        logger.info(f"Database initialized successfully at {DATABASE_PATH}")
+    
+    except sqlite3.Error as e:
+        logger.error(f"Database initialization error: {e}", exc_info=True)
+        raise
 
 
+# ИСПРАВЛЕНО: Добавлена обработка ошибок БД
+def get_user_data(user_id: int) -> dict:
+    try:
+        with closing(sqlite3.connect(DATABASE_PATH, timeout=30.0)) as conn:
+            with closing(conn.cursor()) as cursor:
+                cursor.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
+                result = cursor.fetchone()
+
+                if result:
+                    return {
+                        'requests_remaining': result[1],
+                        'daily_free_requests': result[2],
+                        'last_reset': datetime.strptime(result[3], '%Y-%m-%d').date(),
+                        'total_requests_made': result[4]
+                    }
+                else:
+                    cursor.execute('''
+                        INSERT INTO users (user_id, requests_remaining, daily_free_requests, last_reset, total_requests_made)
+                        VALUES (?, 0, ?, ?, 0)
+                    ''', (user_id, FREE_DAILY_REQUESTS, datetime.now().date().strftime('%Y-%m-%d')))
+                    conn.commit()
+                    
+                    logger.info(f"Created new user record: {user_id}")
+                    
+                    return {
+                        'requests_remaining': 0,
+                        'daily_free_requests': FREE_DAILY_REQUESTS,
+                        'last_reset': datetime.now().date(),
+                        'total_requests_made': 0
+                    }
+    
+    except sqlite3.Error as e:
+        logger.error(f"Database error in get_user_data for user {user_id}: {e}")
+        # Возвращаем значения по умолчанию при ошибке
+        return {
+            'requests_remaining': 0,
+            'daily_free_requests': 0,
+            'last_reset': datetime.now().date(),
+            'total_requests_made': 0
+        }
+
+
+# ИСПРАВЛЕНО: Добавлена обработка ошибок и логирование
 def update_user_data(user_id: int, data: dict):
-    with closing(sqlite3.connect('bot_data.db')) as conn:
-        with closing(conn.cursor()) as cursor:
-            cursor.execute('''
-                UPDATE users 
-                SET requests_remaining = ?, 
-                    daily_free_requests = ?, 
-                    last_reset = ?,
-                    total_requests_made = ?
-                WHERE user_id = ?
-            ''', (
-                data['requests_remaining'],
-                data['daily_free_requests'],
-                data['last_reset'].strftime('%Y-%m-%d'),
-                data['total_requests_made'],
-                user_id
-            ))
-            conn.commit()
+    try:
+        with closing(sqlite3.connect(DATABASE_PATH, timeout=30.0)) as conn:
+            with closing(conn.cursor()) as cursor:
+                cursor.execute('''
+                    UPDATE users 
+                    SET requests_remaining = ?, 
+                        daily_free_requests = ?, 
+                        last_reset = ?,
+                        total_requests_made = ?
+                    WHERE user_id = ?
+                ''', (
+                    data['requests_remaining'],
+                    data['daily_free_requests'],
+                    data['last_reset'].strftime('%Y-%m-%d'),
+                    data['total_requests_made'],
+                    user_id
+                ))
+                conn.commit()
+                
+                logger.debug(f"Updated user data for {user_id}: free={data['daily_free_requests']}, paid={data['requests_remaining']}")
+    
+    except sqlite3.Error as e:
+        logger.error(f"Database error in update_user_data for user {user_id}: {e}")
 
 
+# ИСПРАВЛЕНО: Добавлена обработка ошибок
 def save_payment(user_id: int, requests_count: int, stars_amount: int, telegram_charge_id: str):
-    with closing(sqlite3.connect('bot_data.db')) as conn:
-        with closing(conn.cursor()) as cursor:
-            cursor.execute('''
-                INSERT INTO payments (user_id, requests_count, stars_amount, telegram_charge_id, payment_date)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (user_id, requests_count, stars_amount, telegram_charge_id,
-                  datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-            conn.commit()
+    try:
+        with closing(sqlite3.connect(DATABASE_PATH, timeout=30.0)) as conn:
+            with closing(conn.cursor()) as cursor:
+                cursor.execute('''
+                    INSERT INTO payments (user_id, requests_count, stars_amount, telegram_charge_id, payment_date)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (user_id, requests_count, stars_amount, telegram_charge_id,
+                      datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                conn.commit()
+                
+                logger.info(f"Payment saved: user {user_id}, {requests_count} requests, {stars_amount} stars")
+    
+    except sqlite3.Error as e:
+        logger.error(f"Database error in save_payment for user {user_id}: {e}")
+
+
+# ИСПРАВЛЕНО: Добавлена функция для получения статистики
+def get_stats() -> dict:
+    """Get bot statistics"""
+    try:
+        with closing(sqlite3.connect(DATABASE_PATH, timeout=30.0)) as conn:
+            with closing(conn.cursor()) as cursor:
+                # Общее количество пользователей
+                cursor.execute('SELECT COUNT(*) FROM users')
+                total_users = cursor.fetchone()[0]
+                
+                # Пользователи с купленными запросами
+                cursor.execute('SELECT COUNT(*) FROM users WHERE requests_remaining > 0')
+                paying_users = cursor.fetchone()[0]
+                
+                # Всего выполнено запросов
+                cursor.execute('SELECT SUM(total_requests_made) FROM users')
+                total_requests = cursor.fetchone()[0] or 0
+                
+                # Всего платежей
+                cursor.execute('SELECT COUNT(*), SUM(stars_amount) FROM payments')
+                payment_stats = cursor.fetchone()
+                total_payments = payment_stats[0] or 0
+                total_stars = payment_stats[1] or 0
+                
+                # Платежи за последние 7 дней
+                week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+                cursor.execute('''
+                    SELECT COUNT(*), SUM(stars_amount) 
+                    FROM payments 
+                    WHERE payment_date >= ?
+                ''', (week_ago,))
+                week_stats = cursor.fetchone()
+                week_payments = week_stats[0] or 0
+                week_stars = week_stats[1] or 0
+                
+                return {
+                    'total_users': total_users,
+                    'paying_users': paying_users,
+                    'total_requests': total_requests,
+                    'total_payments': total_payments,
+                    'total_stars': total_stars,
+                    'week_payments': week_payments,
+                    'week_stars': week_stars
+                }
+    
+    except sqlite3.Error as e:
+        logger.error(f"Database error in get_stats: {e}")
+        return {}
 
 
 def reset_daily_requests(user_id: int):
@@ -690,6 +803,37 @@ async def cmd_give(message: types.Message):
         await message.answer("❌ Произошла ошибка при выполнении команды")
 
 
+# ИСПРАВЛЕНО: Добавлена команда /stats
+@dp.message_handler(commands=['stats'])
+async def cmd_stats(message: types.Message):
+    user_id = message.from_user.id
+    
+    if user_id not in ADMIN_USER_IDS:
+        await message.answer("❌ Эта команда доступна только администраторам")
+        return
+    
+    stats = get_stats()
+    
+    if not stats:
+        await message.answer("❌ Ошибка получения статистики")
+        return
+    
+    stats_text = (
+        "📊 Статистика бота\n\n"
+        f"👥 Всего пользователей: {stats['total_users']}\n"
+        f"💎 Платящих: {stats['paying_users']}\n\n"
+        f"📈 Всего запросов: {stats['total_requests']}\n\n"
+        f"💰 Всего платежей: {stats['total_payments']}\n"
+        f"⭐️ Всего stars: {stats['total_stars']}\n\n"
+        f"📅 За последние 7 дней:\n"
+        f"💳 Платежей: {stats['week_payments']}\n"
+        f"⭐️ Stars: {stats['week_stars']}\n\n"
+        f"💵 Примерный доход: ${stats['total_stars'] * 0.02:.2f}"
+    )
+    
+    await message.answer(stats_text)
+
+
 @dp.message_handler(commands=['help'], is_allowed_user=True)
 async def cmd_help(message: types.Message):
     help_text = (
@@ -1039,10 +1183,10 @@ async def errors_handler(update: types.Update, exception: Exception):
 async def on_startup(dp):
     init_db()
     logger.info("Bot started successfully")
+    logger.info(f"Database path: {DATABASE_PATH}")
     logger.info(f"Admin users: {len(ADMIN_USER_IDS)}")
     logger.info(f"AI model: {AI_MODEL}")
     logger.info(f"Payment system: Telegram Stars enabled")
-    logger.info(f"Database: SQLite (bot_data.db)")
 
 
 async def on_shutdown(dp):
