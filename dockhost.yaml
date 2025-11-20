@@ -14,8 +14,9 @@ containers:
     restart: always
     volumes:
       - name: data
-        path: /app
+        path: /data  # ИСПРАВЛЕНО: теперь монтируется в /data
     environment:
       TELEGRAM_BOT_TOKEN:
       PERPLEXITY_API_KEY:
       ADMIN_USER_IDS:
+      DATABASE_PATH: /data/bot_data.db  # ДОБАВЛЕНО: путь к БД на volume
